@@ -112,7 +112,8 @@ abstract class LocalBoxBaseImpl<E> extends BoxBaseImpl<E>
 
   @protected
   Future<void> performCompactionIfNeeded() {
-    if (_compactionStrategy(keystore.length, keystore.deletedEntries)) {
+    if (_compactionStrategy.shouldCompact(
+        keystore.length, keystore.deletedEntries)) {
       return compact();
     }
 

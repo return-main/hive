@@ -9,7 +9,6 @@ import 'package:hive/src/backend/storage_backend_memory.dart';
 import 'package:hive/src/box/box_base_impl.dart';
 import 'package:hive/src/box/default_compaction_strategy.dart';
 import 'package:hive/src/box/default_key_comparator.dart';
-import 'package:hive/src/box/isolate/isolate_box.dart';
 import 'package:hive/src/box/local/box_impl.dart';
 import 'package:hive/src/box/local/lazy_box_impl.dart';
 import 'package:hive/src/util/extensions.dart';

@@ -18,3 +18,5 @@ class DefaultKeyComparator implements KeyComparator {
     }
   }
 }
+
+const defaultKeyComparator = DefaultKeyComparator();

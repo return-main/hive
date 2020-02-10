@@ -1,11 +1,6 @@
-import 'package:hive/hive.dart';
+part of hive;
 
 abstract class IsolateBox<E> extends BoxBase<E> {
-  /// All the keys in the box.
-  ///
-  /// The keys are sorted alphabetically in ascending order.
-  Future<Iterable<dynamic>> get keys;
-
   /// The number of entries in the box.
   Future<int> get length;
 
@@ -14,6 +9,11 @@ abstract class IsolateBox<E> extends BoxBase<E> {
 
   /// Returns true if there is at least one entries in this box.
   Future<bool> get isNotEmpty;
+
+  /// All the keys in the box.
+  ///
+  /// The keys are sorted alphabetically in ascending order.
+  Future<Iterable<dynamic>> get keys;
 
   /// Get the n-th key in the box.
   Future<dynamic> keyAt(int index);
