@@ -7,10 +7,11 @@ import 'package:hive/src/adapters/big_int_adapter.dart';
 import 'package:hive/src/adapters/date_time_adapter.dart';
 import 'package:hive/src/backend/storage_backend_memory.dart';
 import 'package:hive/src/box/box_base_impl.dart';
-import 'package:hive/src/box/box_impl.dart';
 import 'package:hive/src/box/default_compaction_strategy.dart';
 import 'package:hive/src/box/default_key_comparator.dart';
-import 'package:hive/src/box/lazy_box_impl.dart';
+import 'package:hive/src/box/isolate/isolate_box.dart';
+import 'package:hive/src/box/local/box_impl.dart';
+import 'package:hive/src/box/local/lazy_box_impl.dart';
 import 'package:hive/src/util/extensions.dart';
 import 'package:hive/src/registry/type_registry_impl.dart';
 import 'package:meta/meta.dart';
@@ -93,8 +94,8 @@ class HiveImpl extends TypeRegistryImpl implements HiveInterface {
   Future<Box<E>> openBox<E>(
     String name, {
     HiveCipher encryptionCipher,
-    KeyComparator keyComparator = defaultKeyComparator,
-    CompactionStrategy compactionStrategy = defaultCompactionStrategy,
+    KeyComparator keyComparator = const DefaultKeyComparator(),
+    CompactionStrategy compactionStrategy = const DefaultCompactionStrategy(),
     bool crashRecovery = true,
     String path,
     Uint8List bytes,
@@ -111,8 +112,8 @@ class HiveImpl extends TypeRegistryImpl implements HiveInterface {
   Future<LazyBox<E>> openLazyBox<E>(
     String name, {
     HiveCipher encryptionCipher,
-    KeyComparator keyComparator = defaultKeyComparator,
-    CompactionStrategy compactionStrategy = defaultCompactionStrategy,
+    KeyComparator keyComparator = const DefaultKeyComparator(),
+    CompactionStrategy compactionStrategy = const DefaultCompactionStrategy(),
     bool crashRecovery = true,
     String path,
     @deprecated List<int> encryptionKey,
@@ -128,7 +129,7 @@ class HiveImpl extends TypeRegistryImpl implements HiveInterface {
     var lowerCaseName = name.toLowerCase();
     var box = _boxes[lowerCaseName];
     if (box != null) {
-      if ((lazy == null || box.lazy == lazy) && box.valueType == E) {
+      if ((lazy == null || box.isLazy == lazy) && box.valueType == E) {
         return box as BoxBase<E>;
       } else {
         var typeName = box is LazyBox
@@ -148,11 +149,18 @@ class HiveImpl extends TypeRegistryImpl implements HiveInterface {
   }
 
   @override
-  Box<E> box<E>(String name) => getBoxInternal<E>(name, false) as Box<E>;
+  Box<E> box<E>(String name) {
+    return getBoxInternal<E>(name, false) as Box<E>;
+  }
 
   @override
-  LazyBox<E> lazyBox<E>(String name) =>
-      getBoxInternal<E>(name, true) as LazyBox<E>;
+  LazyBox<E> lazyBox<E>(String name) {
+    return getBoxInternal<E>(name, true) as LazyBox<E>;
+  }
+
+  IsolateBox<E> isolateBox<E>(String name) {
+    return getBoxInternal<E>(name, true) as IsolateBox<E>;
+  }
 
   @override
   bool isBoxOpen(String name) {

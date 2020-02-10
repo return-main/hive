@@ -14,8 +14,8 @@ abstract class HiveInterface implements TypeRegistry {
   Future<Box<E>> openBox<E>(
     String name, {
     HiveCipher encryptionCipher,
-    KeyComparator keyComparator = defaultKeyComparator,
-    CompactionStrategy compactionStrategy = defaultCompactionStrategy,
+    KeyComparator keyComparator,
+    CompactionStrategy compactionStrategy,
     bool crashRecovery = true,
     String path,
     Uint8List bytes,
@@ -29,8 +29,8 @@ abstract class HiveInterface implements TypeRegistry {
   Future<LazyBox<E>> openLazyBox<E>(
     String name, {
     HiveCipher encryptionCipher,
-    KeyComparator keyComparator = defaultKeyComparator,
-    CompactionStrategy compactionStrategy = defaultCompactionStrategy,
+    KeyComparator keyComparator,
+    CompactionStrategy compactionStrategy,
     bool crashRecovery = true,
     String path,
     @deprecated List<int> encryptionKey,
@@ -59,8 +59,10 @@ abstract class HiveInterface implements TypeRegistry {
   List<int> generateSecureKey();
 }
 
-///
-typedef KeyComparator = int Function(dynamic key1, dynamic key2);
+abstract class KeyComparator {
+  int compareKeys(dynamic key1, dynamic key2);
+}
 
-/// A function which decides when to compact a box.
-typedef CompactionStrategy = bool Function(int entries, int deletedEntries);
+abstract class CompactionStrategy {
+  bool shouldCompact(int entries, int deletedEntries);
+}
