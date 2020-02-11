@@ -102,6 +102,25 @@ class IsolateBoxImpl<E> extends BoxBaseImpl<E> implements IsolateBox<E> {
   }
 
   @override
+  Stream<BoxEvent> watch({key}) {
+    ReceivePort receivePort;
+    Future<SendPort> sendPort;
+
+    StreamController<BoxEvent> controller;
+    controller = StreamController<BoxEvent>.broadcast(onListen: () {
+      receivePort = ReceivePort();
+      controller.addStream(receivePort.cast());
+      sendPort =
+          sendRequest(IsolateOperation.watch, [receivePort.sendPort, key]);
+    }, onCancel: () async {
+      receivePort.close();
+      (await sendPort).send(null);
+    });
+
+    return controller.stream;
+  }
+
+  @override
   Future<E> get(key, {E defaultValue}) async {
     var value = await sendRequest(IsolateOperation.get, [key, defaultValue]);
     return value as E;
@@ -126,8 +145,9 @@ class IsolateBoxImpl<E> extends BoxBaseImpl<E> implements IsolateBox<E> {
   }
 
   @override
-  Future<void> putAll(Map<dynamic, E> entries) {
-    return sendRequest(IsolateOperation.putAll, entries);
+  Future<void> putAll(Map<dynamic, E> entries,
+      {Iterable<dynamic> keysToDelete}) {
+    return sendRequest(IsolateOperation.putAll, [entries, keysToDelete]);
   }
 
   @override
@@ -138,11 +158,6 @@ class IsolateBoxImpl<E> extends BoxBaseImpl<E> implements IsolateBox<E> {
   @override
   Future<void> deleteAt(int index) {
     return sendRequest(IsolateOperation.deleteAt, index);
-  }
-
-  @override
-  Future<void> deleteAll(Iterable keys) {
-    return sendRequest(IsolateOperation.deleteAll, keys);
   }
 
   @override
@@ -165,12 +180,6 @@ class IsolateBoxImpl<E> extends BoxBaseImpl<E> implements IsolateBox<E> {
   Future<void> deleteFromDisk() async {
     await sendRequest(IsolateOperation.deleteFromDisk);
     _shutdown();
-  }
-
-  @override
-  Stream<BoxEvent> watch({key}) {
-    // TODO: implement watch
-    throw UnimplementedError();
   }
 
   void _checkNonLazyForMultiValueAccess() {

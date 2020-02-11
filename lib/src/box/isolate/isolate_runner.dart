@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:isolate';
 
 import 'package:hive/hive.dart';
@@ -12,13 +13,28 @@ Future createIsolateRunner(SendPort sendPort) async {
 }
 
 class IsolateRunner {
+  List<Future<dynamic> Function(dynamic data)> operations;
   LocalBoxBase box;
+
+  IsolateRunner() {
+    operations = [
+      //
+      initialize, getLength, getKeys, keyAt, containsKey, getValues,
+      valuesBetween, watch, get, getAt, toMap, putAt, putAll, addAll,
+      deleteAt, compact, clear, close, deleteFromDisk
+    ];
+  }
 
   Future handleRequests(Stream requestStream, SendPort sendPort) async {
     await for (var request in requestStream) {
       IsolateResponse response;
       try {
-        response = await handle(request as IsolateRequest);
+        var req = request as IsolateRequest;
+        //print('operation: ' + req.operation.toString());
+        //print('data: ' + req.data.toString());
+        var operation = operations[req.operation];
+        var responseData = await operation(req.data);
+        response = IsolateResponse(responseData);
       } catch (e) {
         response = IsolateResponse.error(e);
       }
@@ -29,26 +45,12 @@ class IsolateRunner {
     }
   }
 
-  Future<IsolateResponse> handle(IsolateRequest request) async {
-    switch (request.operation) {
-      case IsolateOperation.initialize:
-        return initialize(request.data as RemoteBoxParameters);
-      case IsolateOperation.getLength:
-        return getLength();
-      case IsolateOperation.keyAt:
-        return keyAt(request.data as int);
-      case IsolateOperation.containsKey:
-        return containsKey(request.data as dynamic);
-      case IsolateOperation.getValues:
-        return getValues();
-    }
-  }
-
-  Future<IsolateResponse> initialize(RemoteBoxParameters params) async {
+  Future<dynamic> initialize(dynamic data) async {
     if (box != null) {
       throw StateError('IsolateRunner is already initialized.');
     }
-    if (params.lazy) {
+    var params = data as RemoteBoxParameters;
+    /*if (params.lazy) {
       box = await Hive.openLazyBox(
         params.name,
         encryptionCipher: params.encryptionCipher,
@@ -66,98 +68,102 @@ class IsolateRunner {
         crashRecovery: params.crashRecovery,
         path: params.path,
       );
-    }
-
-    return IsolateResponse(null);
+    }*/
+    box = await Hive.openBox('name', path: Directory.current.path);
   }
 
-  IsolateResponse getLength() {
-    return IsolateResponse(box.length);
+  Future<dynamic> getLength(dynamic _) {
+    return Future.value(box.length);
   }
 
-  IsolateResponse keyAt(int index) {
-    return IsolateResponse(box.keyAt(index));
+  Future<dynamic> getKeys(dynamic _) {
+    return Future.value(box.keys);
   }
 
-  IsolateResponse containsKey(dynamic key) {
-    return IsolateResponse(box.containsKey(key));
+  Future<dynamic> keyAt(dynamic index) {
+    return Future.value(box.keyAt(index as int));
   }
 
-  IsolateResponse getValues() {
-    return IsolateResponse((box as Box).values.toList());
+  Future<dynamic> containsKey(dynamic key) {
+    return Future.value(box.containsKey(key));
   }
 
-  IsolateResponse valuesBetween(List<dynamic> keys) {
-    var values = (box as Box).valuesBetween(startKey: keys[0], endKey: keys[1]);
-    return IsolateResponse(values);
+  Future<dynamic> getValues(dynamic _) {
+    return Future.value((box as Box).values.toList());
   }
 
-  Future<IsolateResponse> get(String key, dynamic defaultValue) async {
-    dynamic value;
+  Future<dynamic> valuesBetween(dynamic data) {
+    var values = (box as Box).valuesBetween(startKey: data[0], endKey: data[1]);
+    return Future.value(values);
+  }
+
+  Future<dynamic> watch(dynamic data) {
+    var sendPort = data[0] as SendPort;
+    var key = data[1];
+    var subscription = box.watch(key: key).listen((event) {
+      sendPort.send(event);
+    });
+
+    var receivePort = ReceivePort();
+    receivePort.first.then((value) {
+      subscription.cancel();
+      receivePort.close();
+    });
+
+    return Future.value(receivePort.sendPort);
+  }
+
+  Future<dynamic> get(dynamic data) {
     if (box.isLazy) {
-      value = await (box as LazyBox).get(key, defaultValue: defaultValue);
+      return (box as LazyBox).get(data[0], defaultValue: data[1]);
     } else {
-      value = (box as Box).get(key, defaultValue: defaultValue);
+      var value = (box as Box).get(data[0], defaultValue: data[1]);
+      return Future.value(value);
     }
-    return IsolateResponse(value);
   }
 
-  Future<IsolateResponse> getAt(int index) async {
-    dynamic value;
+  Future<dynamic> getAt(dynamic index) {
     if (box.isLazy) {
-      value = await (box as LazyBox).getAt(index);
+      return (box as LazyBox).getAt(index as int);
     } else {
-      value = (box as Box).getAt(index);
+      var value = (box as Box).getAt(index as int);
+      return Future.value(value);
     }
-    return IsolateResponse(value);
   }
 
-  IsolateResponse toMap() {
-    return IsolateResponse((box as Box).toMap());
+  Future<dynamic> toMap(dynamic _) {
+    return Future.value((box as Box).toMap());
   }
 
-  Future<IsolateResponse> putAt(int index, dynamic value) async {
-    await box.putAt(index, value);
-    return IsolateResponse(null);
+  Future<dynamic> putAt(dynamic data) {
+    return box.putAt(data[0] as int, data[1]);
   }
 
-  Future<IsolateResponse> putAll(Map<String, dynamic> entries) async {
-    await box.putAll(entries);
-    return IsolateResponse(null);
+  Future<dynamic> putAll(dynamic data) {
+    return box.putAll(data[0] as Map, keysToDelete: data[1] as List);
   }
 
-  Future<IsolateResponse> addAll(List<dynamic> values) async {
-    await box.addAll(values);
-    return IsolateResponse(null);
+  Future<dynamic> addAll(dynamic values) {
+    return box.addAll(values as List);
   }
 
-  Future<IsolateResponse> deleteAt(int index) async {
-    await box.deleteAt(index);
-    return IsolateResponse(null);
+  Future<dynamic> deleteAt(dynamic index) {
+    return box.deleteAt(index as int);
   }
 
-  Future<IsolateResponse> deleteAll(List<dynamic> keys) async {
-    await box.deleteAll(keys);
-    return IsolateResponse(null);
+  Future<dynamic> compact(dynamic _) {
+    return box.compact();
   }
 
-  Future<IsolateResponse> compact() async {
-    await box.compact();
-    return IsolateResponse(null);
+  Future<dynamic> clear(dynamic _) {
+    return box.clear();
   }
 
-  Future<IsolateResponse> clear() async {
-    await box.clear();
-    return IsolateResponse(null);
+  Future<dynamic> close(dynamic _) {
+    return box.close();
   }
 
-  Future<IsolateResponse> close() async {
-    await box.close();
-    return IsolateResponse(null);
-  }
-
-  Future<IsolateResponse> deleteFromDisk() async {
-    await box.deleteFromDisk();
-    return IsolateResponse(null);
+  Future<dynamic> deleteFromDisk(dynamic _) {
+    return box.deleteFromDisk();
   }
 }

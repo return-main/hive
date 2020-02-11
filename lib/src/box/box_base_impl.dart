@@ -42,7 +42,12 @@ abstract class BoxBaseImpl<E> implements BoxBase<E> {
 
   @override
   Future<void> delete(dynamic key) {
-    return deleteAll([key]);
+    return putAll({}, keysToDelete: [key]);
+  }
+
+  @override
+  Future<void> deleteAll(Iterable<dynamic> keys) {
+    return putAll({}, keysToDelete: keys);
   }
 
   Future<void> initialize();

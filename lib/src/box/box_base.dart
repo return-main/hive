@@ -60,7 +60,8 @@ abstract class BoxBase<E> {
   Future<void> putAt(int index, E value);
 
   /// Saves all the key - value pairs in the [entries] map.
-  Future<void> putAll(Map<dynamic, E> entries);
+  Future<void> putAll(Map<dynamic, E> entries,
+      {Iterable<dynamic> keysToDelete});
 
   /// Saves the [value] with an auto-increment key.
   Future<void> add(E value);
