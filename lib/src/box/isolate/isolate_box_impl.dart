@@ -3,15 +3,13 @@ import 'dart:isolate';
 
 import 'package:hive/hive.dart';
 import 'package:hive/src/box/box_base_impl.dart';
-import 'package:hive/src/box/isolate/isolate_communication.dart';
+import 'package:hive/src/box/isolate/isolate_client.dart';
 import 'package:hive/src/box/isolate/isolate_runner.dart';
 import 'package:hive/src/hive_impl.dart';
 
 class IsolateBoxImpl<E> extends BoxBaseImpl<E> implements IsolateBox<E> {
-  Isolate _isolate;
-  SendPort _sendPort;
-  Stream _resultStream;
-  StreamSubscription _resultStreamSubscription;
+  final Map<IsolateOperation, int> _operationsMap = IsolateRunner.operationsMap;
+  IsolateClient _client;
 
   @override
   final bool isLazy;
@@ -25,40 +23,25 @@ class IsolateBoxImpl<E> extends BoxBaseImpl<E> implements IsolateBox<E> {
   IsolateBoxImpl(HiveImpl hive, String name, this.isLazy, this.path)
       : super(hive, name);
 
-  Future<T> sendRequest<T, R>(int operation, [R data]) async {
+  Future<dynamic> _sendRequest(IsolateOperation operation, [dynamic data]) {
     checkOpen();
-    var request = IsolateRequest(operation, data);
-    _sendPort.send(request);
 
-    var response = await _resultStream.first as IsolateResponse<T>;
-    if (response.error != null) {
-      throw response.error;
-    }
-    return response.data;
+    var operationId = _operationsMap[operation];
+    return _client.sendRequest(operationId, data);
   }
 
   @override
   Future<void> initialize() async {
-    var receivePort = ReceivePort();
-    _isolate = await Isolate.spawn(createIsolateRunner, receivePort.sendPort);
-    _resultStream = receivePort.asBroadcastStream(onListen: (sub) {
-      _resultStreamSubscription = sub;
-    });
-    _sendPort = await _resultStream.first as SendPort;
+    _client = await IsolateClient.create(isolateEntryPoint);
 
     var params = RemoteBoxParameters(name: name, lazy: isLazy);
-    await sendRequest(IsolateOperation.initialize, params);
-  }
-
-  void _shutdown() {
-    _isolate.kill();
-    _resultStreamSubscription.cancel();
-    closeInternal();
+    await _client.sendRequest(-1, params);
   }
 
   @override
-  Future<int> get length {
-    return sendRequest(IsolateOperation.getLength);
+  Future<int> get length async {
+    var length = await _sendRequest(IsolateRunner.getLength);
+    return length as int;
   }
 
   @override
@@ -72,46 +55,48 @@ class IsolateBoxImpl<E> extends BoxBaseImpl<E> implements IsolateBox<E> {
   }
 
   @override
-  Future<Iterable> get keys {
-    return sendRequest(IsolateOperation.getKeys);
+  Future<Iterable> get keys async {
+    var keys = await _sendRequest(IsolateRunner.getKeys);
+    return keys as Iterable;
   }
 
   @override
-  Future keyAt(int index) {
-    return sendRequest(IsolateOperation.keyAt, index);
+  Future<dynamic> keyAt(int index) {
+    return _sendRequest(IsolateRunner.keyAt, index);
   }
 
   @override
-  Future<bool> containsKey(key) {
-    return sendRequest(IsolateOperation.containsKey, key);
+  Future<bool> containsKey(key) async {
+    var containsKey = await _sendRequest(IsolateRunner.containsKey, key);
+    return containsKey as bool;
   }
 
   @override
   Future<Iterable<E>> get values async {
     _checkNonLazyForMultiValueAccess();
-    var values = await sendRequest<Iterable, void>(IsolateOperation.getValues);
-    return values.cast();
+    var values = await _sendRequest(IsolateRunner.getValues);
+    return (values as Iterable).cast();
   }
 
   @override
   Future<Iterable<E>> valuesBetween({startKey, endKey}) async {
     _checkNonLazyForMultiValueAccess();
-    var values = await sendRequest<Iterable, void>(
-        IsolateOperation.valuesBetween, [startKey, endKey]);
-    return values.cast();
+    var params = [startKey, endKey];
+    var values = await _sendRequest(IsolateRunner.valuesBetween, params);
+    return (values as Iterable).cast();
   }
 
   @override
   Stream<BoxEvent> watch({key}) {
     ReceivePort receivePort;
-    Future<SendPort> sendPort;
+    Future<dynamic> sendPort;
 
     StreamController<BoxEvent> controller;
     controller = StreamController<BoxEvent>.broadcast(onListen: () {
       receivePort = ReceivePort();
       controller.addStream(receivePort.cast());
-      sendPort =
-          sendRequest(IsolateOperation.watch, [receivePort.sendPort, key]);
+      var params = [receivePort.sendPort, key];
+      sendPort = _sendRequest(IsolateRunner.watch, params);
     }, onCancel: () async {
       receivePort.close();
       (await sendPort).send(null);
@@ -122,64 +107,67 @@ class IsolateBoxImpl<E> extends BoxBaseImpl<E> implements IsolateBox<E> {
 
   @override
   Future<E> get(key, {E defaultValue}) async {
-    var value = await sendRequest(IsolateOperation.get, [key, defaultValue]);
+    var value = await _sendRequest(IsolateRunner.get, [key, defaultValue]);
     return value as E;
   }
 
   @override
   Future<E> getAt(int index) async {
-    var value = await sendRequest(IsolateOperation.getAt, index);
+    var value = await _sendRequest(IsolateRunner.getAt, index);
     return value as E;
   }
 
   @override
   Future<Map<dynamic, E>> toMap() async {
     _checkNonLazyForMultiValueAccess();
-    var map = await sendRequest<Map, void>(IsolateOperation.toMap);
-    return map.cast();
+    var map = await _sendRequest(IsolateRunner.toMap);
+    return (map as Map).cast();
   }
 
   @override
   Future<void> putAt(int index, E value) {
-    return sendRequest(IsolateOperation.putAt, [index, value]);
+    return _sendRequest(IsolateRunner.putAt, [index, value]);
   }
 
   @override
   Future<void> putAll(Map<dynamic, E> entries,
       {Iterable<dynamic> keysToDelete}) {
-    return sendRequest(IsolateOperation.putAll, [entries, keysToDelete]);
+    return _sendRequest(IsolateRunner.putAll, [entries, keysToDelete]);
   }
 
   @override
   Future<void> addAll(Iterable<E> values) {
-    return sendRequest(IsolateOperation.addAll, values);
+    return _sendRequest(IsolateRunner.addAll, values);
   }
 
   @override
   Future<void> deleteAt(int index) {
-    return sendRequest(IsolateOperation.deleteAt, index);
+    return _sendRequest(IsolateRunner.deleteAt, index);
   }
 
   @override
   Future<void> compact() {
-    return sendRequest(IsolateOperation.compact);
+    return _sendRequest(IsolateRunner.compact);
   }
 
   @override
-  Future<int> clear() {
-    return sendRequest(IsolateOperation.clear);
+  Future<int> clear() async {
+    var count = await _sendRequest(IsolateRunner.clear);
+    return count as int;
   }
 
   @override
   Future<void> close() async {
-    await sendRequest(IsolateOperation.close);
-    _shutdown();
+    await _sendRequest(IsolateRunner.close);
+    await _client.shutdown();
+    closeInternal();
   }
 
   @override
   Future<void> deleteFromDisk() async {
-    await sendRequest(IsolateOperation.deleteFromDisk);
-    _shutdown();
+    await _sendRequest(IsolateRunner.deleteFromDisk);
+    await _client.shutdown();
+    closeInternal();
   }
 
   void _checkNonLazyForMultiValueAccess() {

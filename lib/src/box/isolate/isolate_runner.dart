@@ -2,53 +2,41 @@ import 'dart:io';
 import 'dart:isolate';
 
 import 'package:hive/hive.dart';
-import 'package:hive/src/box/isolate/isolate_communication.dart';
+import 'package:hive/src/box/isolate/isolate_server.dart';
 
-Future createIsolateRunner(SendPort sendPort) async {
-  var receivePort = ReceivePort();
-  sendPort.send(receivePort.sendPort);
-
+void isolateEntryPoint(SendPort sendPort) {
   var runner = IsolateRunner();
-  await runner.handleRequests(receivePort, sendPort);
+  var server = IsolateServer(sendPort, runner.handleRequest);
+  server.serve();
 }
 
+typedef IsolateOperation = Future<dynamic> Function(
+    LocalBoxBase box, dynamic data);
+
 class IsolateRunner {
-  List<Future<dynamic> Function(dynamic data)> operations;
-  LocalBoxBase box;
+  static const List<IsolateOperation> operations = [
+    //
+    getLength, getKeys, keyAt, containsKey, getValues,
+    valuesBetween, watch, get, getAt, toMap, putAt, putAll, addAll,
+    deleteAt, compact, clear, close, deleteFromDisk
+  ];
 
-  IsolateRunner() {
-    operations = [
-      //
-      initialize, getLength, getKeys, keyAt, containsKey, getValues,
-      valuesBetween, watch, get, getAt, toMap, putAt, putAll, addAll,
-      deleteAt, compact, clear, close, deleteFromDisk
-    ];
+  static Map<IsolateOperation, int> get operationsMap {
+    var map = <IsolateOperation, int>{};
+    for (var i = 0; i < operations.length; i++) {
+      map[operations[i]] = i;
+    }
+    return map;
   }
 
-  Future handleRequests(Stream requestStream, SendPort sendPort) async {
-    await for (var request in requestStream) {
-      IsolateResponse response;
-      try {
-        var req = request as IsolateRequest;
-        //print('operation: ' + req.operation.toString());
-        //print('data: ' + req.data.toString());
-        var operation = operations[req.operation];
-        var responseData = await operation(req.data);
-        response = IsolateResponse(responseData);
-      } catch (e) {
-        response = IsolateResponse.error(e);
-      }
-      sendPort.send(response);
-      if (!box.isOpen) {
-        break;
-      }
-    }
+  LocalBoxBase _box;
+
+  Future<dynamic> handleRequest(int operationId, dynamic data) {
+    var operation = operations[operationId];
+    return operation(_box, data);
   }
 
-  Future<dynamic> initialize(dynamic data) async {
-    if (box != null) {
-      throw StateError('IsolateRunner is already initialized.');
-    }
+  Future<LocalBoxBase> initialize(dynamic data) {
     var params = data as RemoteBoxParameters;
     /*if (params.lazy) {
       box = await Hive.openLazyBox(
@@ -69,35 +57,35 @@ class IsolateRunner {
         path: params.path,
       );
     }*/
-    box = await Hive.openBox('name', path: Directory.current.path);
+    return Hive.openBox('name', path: Directory.current.path);
   }
 
-  Future<dynamic> getLength(dynamic _) {
+  static Future<dynamic> getLength(LocalBoxBase box, dynamic _) {
     return Future.value(box.length);
   }
 
-  Future<dynamic> getKeys(dynamic _) {
+  static Future<dynamic> getKeys(LocalBoxBase box, dynamic _) {
     return Future.value(box.keys);
   }
 
-  Future<dynamic> keyAt(dynamic index) {
+  static Future<dynamic> keyAt(LocalBoxBase box, dynamic index) {
     return Future.value(box.keyAt(index as int));
   }
 
-  Future<dynamic> containsKey(dynamic key) {
+  static Future<dynamic> containsKey(LocalBoxBase box, dynamic key) {
     return Future.value(box.containsKey(key));
   }
 
-  Future<dynamic> getValues(dynamic _) {
+  static Future<dynamic> getValues(LocalBoxBase box, dynamic _) {
     return Future.value((box as Box).values.toList());
   }
 
-  Future<dynamic> valuesBetween(dynamic data) {
+  static Future<dynamic> valuesBetween(LocalBoxBase box, dynamic data) {
     var values = (box as Box).valuesBetween(startKey: data[0], endKey: data[1]);
     return Future.value(values);
   }
 
-  Future<dynamic> watch(dynamic data) {
+  static Future<dynamic> watch(LocalBoxBase box, dynamic data) {
     var sendPort = data[0] as SendPort;
     var key = data[1];
     var subscription = box.watch(key: key).listen((event) {
@@ -113,7 +101,7 @@ class IsolateRunner {
     return Future.value(receivePort.sendPort);
   }
 
-  Future<dynamic> get(dynamic data) {
+  static Future<dynamic> get(LocalBoxBase box, dynamic data) {
     if (box.isLazy) {
       return (box as LazyBox).get(data[0], defaultValue: data[1]);
     } else {
@@ -122,7 +110,7 @@ class IsolateRunner {
     }
   }
 
-  Future<dynamic> getAt(dynamic index) {
+  static Future<dynamic> getAt(LocalBoxBase box, dynamic index) {
     if (box.isLazy) {
       return (box as LazyBox).getAt(index as int);
     } else {
@@ -131,39 +119,61 @@ class IsolateRunner {
     }
   }
 
-  Future<dynamic> toMap(dynamic _) {
+  static Future<dynamic> toMap(LocalBoxBase box, dynamic _) {
     return Future.value((box as Box).toMap());
   }
 
-  Future<dynamic> putAt(dynamic data) {
+  static Future<dynamic> putAt(LocalBoxBase box, dynamic data) {
     return box.putAt(data[0] as int, data[1]);
   }
 
-  Future<dynamic> putAll(dynamic data) {
+  static Future<dynamic> putAll(LocalBoxBase box, dynamic data) {
     return box.putAll(data[0] as Map, keysToDelete: data[1] as List);
   }
 
-  Future<dynamic> addAll(dynamic values) {
+  static Future<dynamic> addAll(LocalBoxBase box, dynamic values) {
     return box.addAll(values as List);
   }
 
-  Future<dynamic> deleteAt(dynamic index) {
+  static Future<dynamic> deleteAt(LocalBoxBase box, dynamic index) {
     return box.deleteAt(index as int);
   }
 
-  Future<dynamic> compact(dynamic _) {
+  static Future<dynamic> compact(LocalBoxBase box, dynamic _) {
     return box.compact();
   }
 
-  Future<dynamic> clear(dynamic _) {
+  static Future<dynamic> clear(LocalBoxBase box, dynamic _) {
     return box.clear();
   }
 
-  Future<dynamic> close(dynamic _) {
+  static Future<dynamic> close(LocalBoxBase box, dynamic _) {
     return box.close();
   }
 
-  Future<dynamic> deleteFromDisk(dynamic _) {
+  static Future<dynamic> deleteFromDisk(LocalBoxBase box, dynamic _) {
     return box.deleteFromDisk();
   }
+}
+
+class RemoteBoxParameters {
+  final String name;
+  final bool lazy;
+  final HiveCipher encryptionCipher;
+  final KeyComparator keyComparator;
+  final CompactionStrategy compactionStrategy;
+  final bool crashRecovery;
+  final String path;
+  final Map<int, TypeAdapter> adapters;
+
+  const RemoteBoxParameters({
+    this.name,
+    this.lazy,
+    this.encryptionCipher,
+    this.keyComparator,
+    this.compactionStrategy,
+    this.crashRecovery,
+    this.path,
+    this.adapters,
+  });
 }
